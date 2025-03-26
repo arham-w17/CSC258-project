@@ -16,6 +16,13 @@
 ##############################################################################
 
     .data
+
+  # To store the location of the CAPSULE
+  # CAPSULE_X:          .word   0     # pointer to the x co-ordinate of the capsule.
+  # CAPSULE_Y:          .word   0     # pointer to the y co-ordinate of the capsule.
+  # CAPSULE_COLOUR1:    .byte   0     # a 3-value variable for the colour of the left-half of the capsule.
+  # CAPSULE_COLOUR2:    .byte   0     # a 3-value variable for the colour of the right-half of the capsule.
+  # DRMARIO_GRID:       .space  1024  # allocate a space in memory for my Dr. Mario grid.  
 ##############################################################################
 # Immutable Data
 
@@ -205,6 +212,10 @@ main:
     sw $t4, 0($a0)       # paint the first virus red ($t4 stores red from the previous function)
     sw $t5, 0($a1)       # paint the second virus green ($t5 stores green from the previous function)
     sw $t6, 0($a2)       # paint the third virus blue
+
+  # handle_A_key:
+    # la $t1, capsule_x -> set $t1 to the address of the left half of the capsule.
+    # lw $t2, 0($t1) -> fetch the x co-ordinate of the cpasule and store in $t2.
     
 Exit:
 li $v0, 10  # terminate the program gracefully
@@ -242,6 +253,14 @@ syscall
     # pixel_draw_end:              # the end label for the pixel drawing loop. If we do not include this, we get an infinite loop. No conditions here.
     # jr $ra                       # return to the calling program. $ra stands for return address. When this function is called (jumped into), the address from where we enter the function is stored in $ra.
     # ## end of draw_line function
+
+## Notes:
+  # Memory lives in the data section.
+  # Use stack to hold on to values which are needed later on.
+
+  # To store the location of the CAPSULE
+  # CAPSULE_X:    .word  0
+  # CAPSULE_Y:    .word  0
 
 game_loop:
     # 1a. Check if key has been pressed
