@@ -1,0 +1,2108 @@
+################# CSC258 Assembly Final Project ###################
+# This file contains our implementation of Dr Mario.
+#
+
+#
+# We assert that the code submitted here is entirely our own 
+# creation, and will indicate otherwise when it is not.
+#
+######################## Bitmap Display Configuration ########################
+# - Unit width in pixels:       TODO
+# - Unit height in pixels:      TODO
+# - Display width in pixels:    TODO
+# - Display height in pixels:   TODO
+# - Base Address for Display:   0x10008000 ($gp)
+##############################################################################
+
+    .data
+##############################################################################
+# Immutable Data
+
+
+##############################################################################
+# The address of the bitmap display. Don't forget to connect it!
+ADDR_DSPL:
+    .word 0x10008000
+# The address of the keyboard. Don't forget to connect it!
+ADDR_KBRD:
+    .word 0xffff0000
+
+##############################################################################
+# Mutable Data
+##############################################################################
+  is_vertical: .word 0   # 0 = horizontal, 1 = vertical, to track the orientation of the capsule
+
+
+  ####working logic
+  make_left_row_left_all_match: .word 0
+  make_left_row_right_all_match: .word 0
+  make_leftrow_2left_1right_match: .word 0
+  make_leftrow_1left_2right_match: .word 0
+
+  make_right_row_left_all_match: .word 0
+  make_right_row_right_all_match: .word 0
+  make_rightrow_2left_1right_match: .word 0
+  make_rightrow_1left_2right_match: .word 0
+
+  make_rightcol_1above_2below_match: .word 0
+  make_rightcol_2above_1below_match: .word 0
+  make_rightcol_allabove_match: .word 0
+  make_rightcol_allbelow_match: .word 0
+  
+  make_leftcol_1above_2below_match: .word 0
+  make_leftcol_mixed_match: .word 0
+  make_leftcol_allabove_match: .word 0
+  make_leftcol_allbelow_match: .word 0  
+  GAME_OVER_CUTOFF: .word  0x100082b8  # this is the the location of the bottle neck approximately. So if the pixel has something below it and reaches this location, GAME OVER
+  gravity_counter: .word 0
+  gravity_applied: .word 0
+  capsule_orientation_horizontal: .word 0  # 0 = orientation it started off with, 1 = horizontal, but opposite orientation it started off with.
+capsule_orientation_vertical: .word 0    # 0 = orientation it attains after first horizontal to vertical rotation, i.e., $t5 below $t6, and 1 = opposite vertical orientation.
+is_paused: .word 0                       # 0 = game is unpaused, 1 = game is paused.
+
+capsule_saved: .word 0  # 0 = No capsule is saved. 1 = There is a saved capsule
+
+# Colours for Dr. Mario sprite
+array1: .word 0x000000, 0x552211, 0xaaaaaa, 0xaaaaaa, 0x552211, 0x552211
+array2: .word 0x000000, 0xffbb55, 0xffbb55, 0xffbb55, 0xffbb55, 0xffbb55
+array3: .word 0x000000, 0xffffff, 0x000000, 0xffbb55, 0x000000, 0xffffff
+array4: .word 0xffbb55, 0xffbb55, 0xffbb55, 0xffbb55, 0xffbb55, 0xffbb55
+array5: .word 0xffbb55, 0xffbb55, 0xffbb55, 0xffbb55, 0xffbb55, 0xffbb55
+array6: .word 0x000000, 0x552211, 0x552211, 0x552211, 0xffbb55, 0xffbb55
+array7: .word 0x000000, 0xffbb55, 0x000000, 0xffbb55, 0xffbb55, 0xffbb55
+array8: .word 0x000000, 0xffffff, 0xffffff, 0xffffff, 0xffffff, 0xffffff
+array9: .word 0x000000, 0xffffff, 0xffffff, 0xffffff, 0xffffff, 0xffffff
+array10: .word 0x000000, 0xffffff, 0xffffff, 0xffffff, 0xffffff, 0xffffff
+array11: .word 0x000000, 0xffffff, 0xffffff, 0xffffff, 0xffffff, 0xffffff
+array12: .word 0x000000, 0xffffff, 0xffffff, 0x000000, 0xffffff, 0xffffff
+array13: .word 0x552211, 0x552211, 0x552211, 0x552211, 0x552211, 0x552211
+
+# Colours for virus sprites
+list_red1: .word 0x000000, 0xff0000, 0xff0000, 0x000000
+list_red2: .word 0x000000, 0xff0000, 0xff0000, 0x000000
+list_red3: .word 0xff0000, 0x000000, 0x000000, 0xff0000
+
+list_yellow1: .word 0x000000, 0xffff00, 0xffff00, 0x000000
+list_yellow2: .word 0x000000, 0xffff00, 0xffff00, 0x000000
+list_yellow3: .word 0xffff00, 0x000000, 0x000000, 0xffff00
+
+list_blue1: .word 0x000000, 0x0000ff, 0x0000ff, 0x000000
+list_blue2: .word 0x000000, 0x0000ff, 0x0000ff, 0x000000
+list_blue3: .word 0x0000ff, 0x000000, 0x000000, 0x0000ff
+
+# capsules_drawing_done: .word 0   # this variable is introduced so that i can prevent virsues from regenerating
+gravity_speed: .word 1000000
+##############################################################################
+# Code
+##############################################################################
+	.text
+	.globl main
+
+    # Run the game.
+main:
+  # li $t1, 0x00ffff     # $t1 stores the value for the colour cyan.
+  lw $t0, ADDR_DSPL    # $t0 = base address for display
+
+    draw_mario:
+    addi $t1, $t0, 1380  # Starting position to draw Dr. Mario
+
+    mario_1:
+      la $a0, array1  # Load array1 into $a0
+      lw $t2, 0($a0)  # $t2 = array[0]
+      sw $t2, 0($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 4($a0)  # $t2 = array[0]
+      sw $t2, 4($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 8($a0)  # $t2 = array[0]
+      sw $t2, 8($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 12($a0)  # $t2 = array[0]
+      sw $t2, 12($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 16($a0)  # $t2 = array[0]
+      sw $t2, 16($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 20($a0)  # $t2 = array[0]
+      sw $t2, 20($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      addi $t1, $t1, 128  # Move down a row.
+
+    mario2:
+      la $a0, array2  # Load array2 into $a0
+      lw $t2, 0($a0)  # $t2 = array2[0]
+      sw $t2, 0($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 4($a0)  # $t2 = array2[1]
+      sw $t2, 4($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 8($a0)  # $t2 = array2[2]
+      sw $t2, 8($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 12($a0)  # $t2 = array2[3]
+      sw $t2, 12($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 16($a0)  # $t2 = array2[4]
+      sw $t2, 16($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 20($a0)  # $t2 = array2[5]
+      sw $t2, 20($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      addi $t1, $t1, 128  # Move down a row.
+
+    mario3:
+      la $a0, array3  # Load array3 into $a0
+      lw $t2, 0($a0)  # $t2 = array3[0]
+      sw $t2, 0($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 4($a0)  # $t2 = array3[1]
+      sw $t2, 4($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 8($a0)  # $t2 = array3[2]
+      sw $t2, 8($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 12($a0)  # $t2 = array3[3]
+      sw $t2, 12($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 16($a0)  # $t2 = array3[4]
+      sw $t2, 16($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 20($a0)  # $t2 = array3[5]
+      sw $t2, 20($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      addi $t1, $t1, 128  # Move down a row.
+
+    mario4:
+      la $a0, array4  # Load array4 into $a0
+      lw $t2, 0($a0)  # $t2 = array4[0]
+      sw $t2, 0($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 4($a0)  # $t2 = array4[1]
+      sw $t2, 4($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 8($a0)  # $t2 = array4[2]
+      sw $t2, 8($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 12($a0)  # $t2 = array4[3]
+      sw $t2, 12($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 16($a0)  # $t2 = array4[4]
+      sw $t2, 16($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 20($a0)  # $t2 = array4[5]
+      sw $t2, 20($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      addi $t1, $t1, 128  # Move down a row.
+
+    mario5:
+      la $a0, array5  # Load array5 into $a0
+      lw $t2, 0($a0)  # $t2 = array5[0]
+      sw $t2, 0($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 4($a0)  # $t2 = array5[1]
+      sw $t2, 4($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 8($a0)  # $t2 = array5[2]
+      sw $t2, 8($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 12($a0)  # $t2 = array5[3]
+      sw $t2, 12($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 16($a0)  # $t2 = array5[4]
+      sw $t2, 16($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 20($a0)  # $t2 = array5[5]
+      sw $t2, 20($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      addi $t1, $t1, 128  # Move down a row.
+
+    mario6:
+      la $a0, array6  # Load array6 into $a0
+      lw $t2, 0($a0)  # $t2 = array6[0]
+      sw $t2, 0($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 4($a0)  # $t2 = array6[1]
+      sw $t2, 4($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 8($a0)  # $t2 = array6[2]
+      sw $t2, 8($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 12($a0)  # $t2 = array6[3]
+      sw $t2, 12($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 16($a0)  # $t2 = array6[4]
+      sw $t2, 16($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 20($a0)  # $t2 = array6[5]
+      sw $t2, 20($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      addi $t1, $t1, 128  # Move down a row.
+      
+    mario7:
+      la $a0, array7  # Load array7 into $a0
+      lw $t2, 0($a0)  # $t2 = array7[0]
+      sw $t2, 0($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 4($a0)  # $t2 = array7[1]
+      sw $t2, 4($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 8($a0)  # $t2 = array7[2]
+      sw $t2, 8($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 12($a0)  # $t2 = array7[3]
+      sw $t2, 12($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 16($a0)  # $t2 = array7[4]
+      sw $t2, 16($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 20($a0)  # $t2 = array7[5]
+      sw $t2, 20($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      addi $t1, $t1, 128  # Move down a row.
+
+    mario8:
+      la $a0, array8  # Load array8 into $a0
+      lw $t2, 0($a0)  # $t2 = array8[0]
+      sw $t2, 0($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 4($a0)  # $t2 = array8[1]
+      sw $t2, 4($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 8($a0)  # $t2 = array8[2]
+      sw $t2, 8($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 12($a0)  # $t2 = array8[3]
+      sw $t2, 12($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 16($a0)  # $t2 = array8[4]
+      sw $t2, 16($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 20($a0)  # $t2 = array8[5]
+      sw $t2, 20($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      addi $t1, $t1, 128  # Move down a row.
+
+    mario9:
+      la $a0, array9  # Load array9 into $a0
+      lw $t2, 0($a0)  # $t2 = array9[0]
+      sw $t2, 0($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 4($a0)  # $t2 = array9[1]
+      sw $t2, 4($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 8($a0)  # $t2 = array9[2]
+      sw $t2, 8($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 12($a0)  # $t2 = array9[3]
+      sw $t2, 12($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 16($a0)  # $t2 = array9[4]
+      sw $t2, 16($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 20($a0)  # $t2 = array9[5]
+      sw $t2, 20($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      addi $t1, $t1, 128  # Move down a row.
+
+    mario10:
+      la $a0, array10  # Load array10 into $a0
+      lw $t2, 0($a0)  # $t2 = array10[0]
+      sw $t2, 0($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 4($a0)  # $t2 = array10[1]
+      sw $t2, 4($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 8($a0)  # $t2 = array10[2]
+      sw $t2, 8($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 12($a0)  # $t2 = array10[3]
+      sw $t2, 12($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 16($a0)  # $t2 = array10[4]
+      sw $t2, 16($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 20($a0)  # $t2 = array10[5]
+      sw $t2, 20($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      addi $t1, $t1, 128  # Move down a row.
+
+    mario11:
+      la $a0, array11  # Load array11 into $a0
+      lw $t2, 0($a0)  # $t2 = array11[0]
+      sw $t2, 0($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 4($a0)  # $t2 = array11[1]
+      sw $t2, 4($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 8($a0)  # $t2 = array11[2]
+      sw $t2, 8($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 12($a0)  # $t2 = array11[3]
+      sw $t2, 12($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 16($a0)  # $t2 = array11[4]
+      sw $t2, 16($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 20($a0)  # $t2 = array11[5]
+      sw $t2, 20($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      addi $t1, $t1, 128  # Move down a row.
+
+    mario12:
+      la $a0, array12  # Load array12 into $a0
+      lw $t2, 0($a0)  # $t2 = array12[0]
+      sw $t2, 0($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 4($a0)  # $t2 = array12[1]
+      sw $t2, 4($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 8($a0)  # $t2 = array12[2]
+      sw $t2, 8($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 12($a0)  # $t2 = array12[3]
+      sw $t2, 12($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 16($a0)  # $t2 = array12[4]
+      sw $t2, 16($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 20($a0)  # $t2 = array12[5]
+      sw $t2, 20($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      addi $t1, $t1, 128  # Move down a row.
+
+    mario13:
+      la $a0, array13  # Load array13 into $a0
+      lw $t2, 0($a0)  # $t2 = array13[0]
+      sw $t2, 0($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 4($a0)  # $t2 = array13[1]
+      sw $t2, 4($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 8($a0)  # $t2 = array13[2]
+      sw $t2, 8($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 12($a0)  # $t2 = array13[3]
+      sw $t2, 12($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 16($a0)  # $t2 = array13[4]
+      sw $t2, 16($t1)  # Colour the position of $t1 with the colour stored in $t2.
+      lw $t2, 20($a0)  # $t2 = array13[5]
+      sw $t2, 20($t1)  # Colour the position of $t1 with the colour stored in $t2.
+
+    virus_sprite:
+      addi $t1, $t0, 1284  # Starting position to draw the virus sprites
+
+      virus_red1:
+        la $a0, list_red1  # Load array list_red1 into $a0
+        lw $t2, 0($a0)  # $t2 = array12[0]
+        sw $t2, 0($t1)  # Colour the position of $t1 with the colour stored in $t2.
+        lw $t2, 4($a0)  # $t2 = array12[1]
+        sw $t2, 4($t1)  # Colour the position of $t1 with the colour stored in $t2.
+        lw $t2, 8($a0)  # $t2 = array12[2]
+        sw $t2, 8($t1)  # Colour the position of $t1 with the colour stored in $t2.
+        lw $t2, 12($a0)  # $t2 = array12[3]
+        sw $t2, 12($t1)  # Colour the position of $t1 with the colour stored in $t2.
+        addi $t1, $t1, 128  # Move 1 row down.
+
+      virus_red2:
+        la $a0, list_red2  # Load array list_red2 into $a0
+        lw $t2, 0($a0)  # $t2 = array12[0]
+        sw $t2, 0($t1)  # Colour the position of $t1 with the colour stored in $t2.
+        lw $t2, 4($a0)  # $t2 = array12[1]
+        sw $t2, 4($t1)  # Colour the position of $t1 with the colour stored in $t2.
+        lw $t2, 8($a0)  # $t2 = array12[2]
+        sw $t2, 8($t1)  # Colour the position of $t1 with the colour stored in $t2.
+        lw $t2, 12($a0)  # $t2 = array12[3]
+        sw $t2, 12($t1)  # Colour the position of $t1 with the colour stored in $t2.
+        addi $t1, $t1, 128  # Move 1 row down.
+
+      virus_red3:
+        la $a0, list_red3  # Load array list_red3 into $a0
+        lw $t2, 0($a0)  # $t2 = array12[0]
+        sw $t2, 0($t1)  # Colour the position of $t1 with the colour stored in $t2.
+        lw $t2, 4($a0)  # $t2 = array12[1]
+        sw $t2, 4($t1)  # Colour the position of $t1 with the colour stored in $t2.
+        lw $t2, 8($a0)  # $t2 = array12[2]
+        sw $t2, 8($t1)  # Colour the position of $t1 with the colour stored in $t2.
+        lw $t2, 12($a0)  # $t2 = array12[3]
+        sw $t2, 12($t1)  # Colour the position of $t1 with the colour stored in $t2.
+        addi $t1, $t1, 256  # Move 2 rows down.
+
+      virus_yellow1:
+        la $a0, list_yellow1  # Load array list_yellow1 into $a0
+        lw $t2, 0($a0)  # $t2 = array12[0]
+        sw $t2, 0($t1)  # Colour the position of $t1 with the colour stored in $t2.
+        lw $t2, 4($a0)  # $t2 = array12[1]
+        sw $t2, 4($t1)  # Colour the position of $t1 with the colour stored in $t2.
+        lw $t2, 8($a0)  # $t2 = array12[2]
+        sw $t2, 8($t1)  # Colour the position of $t1 with the colour stored in $t2.
+        lw $t2, 12($a0)  # $t2 = array12[3]
+        sw $t2, 12($t1)  # Colour the position of $t1 with the colour stored in $t2.
+        addi $t1, $t1, 128  # Move 1 row down.
+
+      virus_yellow2:
+        la $a0, list_yellow2  # Load array list_yellow2 into $a0
+        lw $t2, 0($a0)  # $t2 = array12[0]
+        sw $t2, 0($t1)  # Colour the position of $t1 with the colour stored in $t2.
+        lw $t2, 4($a0)  # $t2 = array12[1]
+        sw $t2, 4($t1)  # Colour the position of $t1 with the colour stored in $t2.
+        lw $t2, 8($a0)  # $t2 = array12[2]
+        sw $t2, 8($t1)  # Colour the position of $t1 with the colour stored in $t2.
+        lw $t2, 12($a0)  # $t2 = array12[3]
+        sw $t2, 12($t1)  # Colour the position of $t1 with the colour stored in $t2.
+        addi $t1, $t1, 128  # Move 1 row down.
+
+      virus_yellow3:
+        la $a0, list_yellow3  # Load array list_yellow3 into $a0
+        lw $t2, 0($a0)  # $t2 = array12[0]
+        sw $t2, 0($t1)  # Colour the position of $t1 with the colour stored in $t2.
+        lw $t2, 4($a0)  # $t2 = array12[1]
+        sw $t2, 4($t1)  # Colour the position of $t1 with the colour stored in $t2.
+        lw $t2, 8($a0)  # $t2 = array12[2]
+        sw $t2, 8($t1)  # Colour the position of $t1 with the colour stored in $t2.
+        lw $t2, 12($a0)  # $t2 = array12[3]
+        sw $t2, 12($t1)  # Colour the position of $t1 with the colour stored in $t2.
+        addi $t1, $t1, 256  # Move 2 rows down.
+
+      virus_blue1:
+        la $a0, list_blue1  # Load array list_blue1 into $a0
+        lw $t2, 0($a0)  # $t2 = array12[0]
+        sw $t2, 0($t1)  # Colour the position of $t1 with the colour stored in $t2.
+        lw $t2, 4($a0)  # $t2 = array12[1]
+        sw $t2, 4($t1)  # Colour the position of $t1 with the colour stored in $t2.
+        lw $t2, 8($a0)  # $t2 = array12[2]
+        sw $t2, 8($t1)  # Colour the position of $t1 with the colour stored in $t2.
+        lw $t2, 12($a0)  # $t2 = array12[3]
+        sw $t2, 12($t1)  # Colour the position of $t1 with the colour stored in $t2.
+        addi $t1, $t1, 128  # Move 1 row down.
+
+      virus_blue2:
+        la $a0, list_blue2  # Load array list_blue2 into $a0
+        lw $t2, 0($a0)  # $t2 = array12[0]
+        sw $t2, 0($t1)  # Colour the position of $t1 with the colour stored in $t2.
+        lw $t2, 4($a0)  # $t2 = array12[1]
+        sw $t2, 4($t1)  # Colour the position of $t1 with the colour stored in $t2.
+        lw $t2, 8($a0)  # $t2 = array12[2]
+        sw $t2, 8($t1)  # Colour the position of $t1 with the colour stored in $t2.
+        lw $t2, 12($a0)  # $t2 = array12[3]
+        sw $t2, 12($t1)  # Colour the position of $t1 with the colour stored in $t2.
+        addi $t1, $t1, 128  # Move 1 row down.
+
+      virus_blue3:
+        la $a0, list_blue3  # Load array list_blue3 into $a0
+        lw $t2, 0($a0)  # $t2 = array12[0]
+        sw $t2, 0($t1)  # Colour the position of $t1 with the colour stored in $t2.
+        lw $t2, 4($a0)  # $t2 = array12[1]
+        sw $t2, 4($t1)  # Colour the position of $t1 with the colour stored in $t2.
+        lw $t2, 8($a0)  # $t2 = array12[2]
+        sw $t2, 8($t1)  # Colour the position of $t1 with the colour stored in $t2.
+        lw $t2, 12($a0)  # $t2 = array12[3]
+        sw $t2, 12($t1)  # Colour the position of $t1 with the colour stored in $t2.
+
+      
+  li $t1, 0x00ffff     # $t1 stores the value for the colour cyan for the edges of the bottle.
+
+  addi $s2, $t0, 132  # To store the starting position of the left pause bar.
+  addi $s3, $s2, 8    # To store the starting position of the right pause bar.
+
+  li $t5, 0x10008238   # left half address
+  li $t6, 0x1000823c   # right half address
+
+  addi $s7, $t0, 1032  # Position where the saved capsule will be stored.
+
+
+  # # Creating the loop variables
+  # add $t2, $zero, $zero # initialize the loop variable $t5 to 0. (Register $zero is 'off-limits', always stores 0)
+  # addi $t3, $zero, 10   # initialize $t6 to the final value of the loop variable.
+
+  ## start of draw_line function
+  ## draws a single line from a starting position
+  # Takes in the following parameters:
+  # - $a0 : The x co-ordinate for the starting point of vertical line 1
+  # - $a1 : The y co-ordinate for the starting point of vertical line 1
+  # - $a2 : The x co-ordinate for the starting point of vertical line 2.
+  # - $a3 : The y co-ordinate for the starting point of vertical line 2.
+
+  # jal draw_capsule
+
+  randomize_left_half_colour:
+    li $v0, 42  # assign 42 to $v0 so that we may add an upper bound for the random number.
+    li $a0, 0   # generate a random integer >= 0 and < 3.
+    li $a1, 3
+    syscall
+
+  assign_blue_capsule_left_half:                # paint the left half of the capsule blue.
+    bne $a0, 0, assign_yellow_capsule_left_half  # if $a0 does not store 0, then check to see if it stores 1.
+    li $t4, 0x0000ff                            # if $a0 does store 0, then store the blue colour code in $t4.
+    j draw_left_half_capsule                    # jump to the function that draws the capsule.
+
+  assign_yellow_capsule_left_half:             # paint the left half of the capsule yellow.
+    bne $a0, 1, assign_red_capsule_left_half  # if $a0 does not store 1, then check to see if it stores 0.
+    li $t4, 0xffff00                          # if $a0 does store 1, then store the yellow colour code in $t4.
+    j draw_left_half_capsule                  # jump to the function that draws the capsule.
+
+  assign_red_capsule_left_half:         # paint the left half of the capsule red.
+    bne $a0, 2, draw_left_half_capsule  # if $a0 does not store 2, then draw the left half of the capsule.
+    li $t4, 0xff0000                    # if $a0 does store 1, then store the red colour code in $t4.
+    j draw_left_half_capsule            # jump to the function that draws the capsule.
+
+  draw_left_half_capsule:
+    add $a0, $zero, $t5  # reusing $a0 to now store the position of the left half of the pixel.
+    sw $t4, 0($a0)       # paint the left half of the capsule the colour determined by randomize_left_half_colour and assign_colour_capsule_left_half.
+
+  randomize_right_half_colour:
+    li $v0, 42  # assign 42 to $v0 so that we may add an upper bound for the random number.
+    li $a0, 0   # generate a random integer >= 0 and < 3.
+    li $a1, 3
+    syscall
+
+  assign_blue_capsule_right_half:                # paint the right half of the capsule blue.
+    bne $a0, 0, assign_yellow_capsule_right_half  # if $a0 does not store 0, then check to see if it stores 1.
+    li $t4, 0x0000ff                             # if $a0 does store 0, then store the blue colour code in $t4.
+    j draw_right_half_capsule                    # jump to the function that draws the capsule.
+
+  assign_yellow_capsule_right_half:             # paint the right half of the capsule yellow.
+    bne $a0, 1, assign_red_capsule_right_half  # if $a0 does not store 1, then check to see if it stores 0.
+    li $t4, 0xffff00                           # if $a0 does store 1, then store the yellow colour code in $t4.
+    j draw_right_half_capsule                  # jump to the function that draws the capsule.
+
+  assign_red_capsule_right_half:         # paint the right half of the capsule red.
+    bne $a0, 2, draw_right_half_capsule  # if $a0 does not store 2, then draw the right half of the capsule.
+    li $t4, 0xff0000                     # if $a0 does store 1, then store the red colour code in $t4.
+    j draw_right_half_capsule            # jump to the function that draws the capsule.
+
+  draw_right_half_capsule:
+    add $a0, $zero, $t6  # reusing $a0 to now store the position of the right half of the pixel.
+    sw $t4, 0($a0)       # paint the right half of the capsule the colour determined by randomize_right_half_colour and assign_colour_capsule_right_half.
+
+  draw_bottle:
+    addi $a1, $t0, 664   # the left line starts at ...
+    add $a3, $a1, 68     # the right line starts at ...
+    add $a0, $zero, $a1  # top left corner of the bottle
+    add $a2, $zero, $a3  # top right corner of the bottle
+    
+    addi $t2, $zero, 0  # index variable for draw_vertical_line_loop
+    addi $t3, $zero, 0  # index variable for draw_top_loop
+    addi $t4, $zero, 0  # index variable for draw_bottle_neck
+    
+    draw_top_loop:
+      beq $t3, 7, draw_bottle_neck  # once $t3 == 6, start drawing the bottle neck
+      sw $t1, 0($a0)                # paint the current position of $a0 cyan
+      sw $t1, 0($a2)                # paint the current position of $a2 cyan
+      addi $a0, $a0, 4              # move $a0 forward by 1 pixel
+      addi $a2, $a2, -4             # move $a2 backward by 1 pixel
+      addi $t3, $t3, 1              # increment the index variale by 1
+      j draw_top_loop
+
+    draw_bottle_neck:
+      beq $t4, 3, draw_vertical_line_loop  # once $t4 == 3. start drawing the vertical edges of the bottle.
+      sw $t1, 0($a0)                       # paint the current position of $a0 cyan
+      sw $t1, 0($a2)                       # paint the current position of $a2 cyan
+      addi $a0, $a0, -128                  # move $a0 up by 1 pixel
+      addi $a2, $a2, -128                  # move $a2 up by 1 pixel
+      addi $t4, $t4, 1                     # increment the index variale by 1
+      j draw_bottle_neck
+      
+    draw_vertical_line_loop:
+      beq $t2, 20, draw_base_loop  # If $a1 == 512 jump out of the loop.
+      addi $a1, $a1, 128		   # Move current pixel position of $a1 one pixel to the bottom.
+      addi $a3, $a3, 128           # Move current pixel position of $a2 one pixel to the bottom.
+      sw $t1, 0($a1)			   # Draw pixel at current value of $a1.
+      sw $t1, 0($a3)               # Draw pixel at current value of $a3.
+      # addi $a1, $a1, 128		   # Move current pixel position of $a1 one pixel to the bottom.
+      # addi $a3, $a3, 128         # Move current pixel position of $a2 one pixel to the bottom.
+      addi $t2, $t2, 1             # Increment the index value by 1.
+      j draw_vertical_line_loop    # Jump to beginning of loop
+
+    # sw $t1, 0($a3)       # paint the pixel that $a3 currently stores cyan so that the bottom right corner of the bottle isn't empty.
+    # addi $a1, $a1, 4     # move the position stored in $a1 1 over to the right.
+    
+    draw_base_loop:
+      beq $a1, $a3, draw_viruses  # Loop termintaes when $a1 == $a3.
+      sw $t1, 0($a1)              # paint the colour corresponding to the value stored in $t1 at $a1 
+      addi $a1, $a1, 4            # move the current position by 4
+      j draw_base_loop            # Jump back to the beginning of the loop
+
+    draw_viruses:
+    addi $a0, $t0, 1344  # reusing $a0 to now store the position of the first virus.
+    add $a1, $a0, 624    # resuing $a1 to now store the position of the second virus, 4 rows below and to the left of the first one.
+    add $a2, $a1, 668    # resuing $a2 to now store the position of the third virus, 6 rows below and to the right of the second one.
+    li $t4, 0xff0000     # $t4 stores the colour red.
+    sw $t4, 0($a0)       # paint the first virus red.
+    li $t4, 0xffff00     # $t4 now stores the colour yellow.
+    sw $t4, 0($a1)       # paint the second virus yellow.
+    li $t4, 0x0000ff     # $t4 now stores the colour blue.
+    sw $t4, 0($a2)       # paint the third virus blue.
+    
+    j randomize_left_second_capsule  # Once the bottle is drawn (only happens once), start drawing the side capsule.
+
+    check_game_over:
+    addi $a0, $t8, 0          # Saving $t8's old value (Which determines the capsule's horizontal orientation) 
+    lw $t8, GAME_OVER_CUTOFF
+    blt $t5, $t8, game_over   # if left capsule is too high → game over
+    addi $t8, $a0, 0          # Restoring $t8's old value
+
+  draw_new_capsule:
+    li $t5, 0x10008238   # left half address
+    li $t6, 0x1000823c   # right half address
+    sw $s0, 0($t5)  # Paint the old value of $s0 in the position of the new capsule.
+    sw $s1, 0($t6)  # Paint the old value of $s1 in the position of the new capsule.
+  
+  randomize_left_second_capsule:
+    li $v0, 42  # assign 42 to $v0 so that we may add an upper bound for the random number.
+    li $a0, 0   # generate a random integer >= 0 and < 3.
+    li $a1, 3   # upper bound for the random number (not included in the numbers that can be generated)
+    syscall
+
+  assign_blue_second_capsule_left_half:                # paint the left half of the capsule blue.
+    bne $a0, 0, assign_yellow_second_capsule_left_half  # if $a0 does not store 0, then check to see if it stores 1.
+    li $t4, 0x0000ff                                   # if $a0 does store 0, then store the blue colour code in $t4.
+    j draw_left_half_second_capsule                    # jump to the function that draws the 2nd capsule.
+
+  assign_yellow_second_capsule_left_half:             # paint the left half of the capsule yellow.
+    bne $a0, 1, assign_red_second_capsule_left_half  # if $a0 does not store 1, then check to see if it stores 0.
+    li $t4, 0xffff00                                 # if $a0 does store 1, then store the yellow colour code in $t4.
+    j draw_left_half_second_capsule                  # jump to the function that draws the 2nd capsule.
+
+  assign_red_second_capsule_left_half:         # paint the left half of the capsule red.
+    bne $a0, 2, draw_left_half_second_capsule  # if $a0 does not store 2, then draw the left half of the capsule.
+    li $t4, 0xff0000                           # if $a0 does store 1, then store the red colour code in $t4.
+    j draw_left_half_second_capsule            # jump to the function that draws the 2nd capsule.
+
+  draw_left_half_second_capsule:
+    lw $t0, ADDR_DSPL    # $t0 = base address for display
+    addi $a0, $t0, 1000  # reusing $a0 to now store the position of the left half of the second capsule.
+    sw $t4, 0($a0)       # paint the left half of the capsule the colour determined by draw_new_capsule and assign_colour_capsule_left_half.
+    add $s0, $zero, $t4  # Storing the colour of the left half of the side capsule in $s0.
+  
+  randomize_right_second_capsule:
+    li $v0, 42  # assign 42 to $v0 so that we may add an upper bound for the random number.
+    li $a0, 0   # generate a random integer >= 0 and < 3.
+    li $a1, 3
+    syscall
+
+  assign_blue_second_capsule_right_half:                # paint the right half of the capsule blue.
+    bne $a0, 0, assign_yellow_second_capsule_right_half  # if $a0 does not store 0, then check to see if it stores 1.
+    li $t4, 0x0000ff                                    # if $a0 does store 0, then store the blue colour code in $t4.
+    j draw_right_half_second_capsule                    # jump to the function that draws the capsule.
+
+  assign_yellow_second_capsule_right_half:             # paint the right half of the capsule yellow.
+    bne $a0, 1, assign_red_second_capsule_right_half  # if $a0 does not store 1, then check to see if it stores 0.
+    li $t4, 0xffff00                                  # if $a0 does store 1, then store the yellow colour code in $t4.
+    j draw_right_half_second_capsule                  # jump to the function that draws the capsule.
+
+  assign_red_second_capsule_right_half:         # paint the right half of the capsule red.
+    bne $a0, 2, draw_right_half_second_capsule  # if $a0 does not store 2, then draw the right half of the capsule.
+    li $t4, 0xff0000                            # if $a0 does store 1, then store the red colour code in $t4.
+    j draw_right_half_second_capsule            # jump to the function that draws the capsule.
+
+  draw_right_half_second_capsule:
+    lw $t0, ADDR_DSPL    # $t0 = base address for display
+    addi $a0, $t0, 1004  # reusing $a0 to now store the position of the right half of the second capsule.
+    sw $t4, 0($a0)       # paint the right half of the capsule the colour determined by randomize_right_half_colour and assign_colour_capsule_right_half.
+    add $s1, $zero, $t4  # Storing the colour of the right half of the side capsule.
+
+    # Initializing the orientation of the capsule to the deafult orientation immediately after it spawns.
+    
+    addi $t7, $zero, 0  # Capsule is horizontal in the beginning.
+    addi $t8, $zero, 0  # Capsule has the default horizontal orientation.
+
+    sw $t7, is_vertical
+    sw $t8, capsule_orientation_horizontal
+  
+# draw_viruses:
+#     addi $a0, $t0, 1344  # reusing $a0 to now store the position of the first virus.
+#     add $a1, $a0, 624    # resuing $a1 to now store the position of the second virus, 4 rows below and to the left of the first one.
+#     add $a2, $a1, 668    # resuing $a2 to now store the position of the third virus, 6 rows below and to the right of the second one.
+#     li $t4, 0xff0000     # $t4 stores the colour red.
+#     sw $t4, 0($a0)       # paint the first virus red.
+#     li $t4, 0xffff00     # $t4 now stores the colour yellow.
+#     sw $t4, 0($a1)       # paint the second virus yellow.
+#     li $t4, 0x0000ff     # $t4 now stores the colour blue.
+#     sw $t4, 0($a2)       # paint the third virus blue.
+#     li $t8, 1
+#     la $t9, capsules_drawing_done
+#     sw $t8, 0($t9)
+
+  # Note: In Assembly, registers are shared across functions (unlike other programming languages).
+  
+    # # Initialize the game
+    # lw $t0, ADDR_DSPL     # $t0 = base address for display. Top-left corner of the bitmap display. Place in memory from where we look for new pixels.
+    # li $t3, 0x0000ff      # Register $t3 stores blue
+    
+    # add $t5, $zero, $zero # initialize the loop variable $t5 to 0. (Register $zero is 'off-limits', always stores 0)
+    # addi $t6, $zero, 10   # initialize $t6 to the final value of the loop variable.
+    # addi $t7, $zero, 400  # set the starting address for the line (draw at the 400th pixel).
+    
+    # jal draw_line         # call the line-drawing function.
+
+    # ## start of draw_line function
+    # ## draws a single line from a starting position
+    # # Takes in the following parameters:
+    # # - $a0 : The x co-ordinate for the starting point of the line
+    # # - $a1 : The y co-ordinate for the starting point of the line
+    # # - $a2 : The length of the line.
+    # draw_line:
+    # # Main line drawing loop
+    # pixel_draw_start:            # adding the colon makes this the line's label
+    # sll $a1, $a1, 7              # calculate the vertical offset from the top-row (multiply $a1 by 128, i.e., perform a logical left shift on $a1 by 7 bits).
+    # add $t7, $t0, $a1            # calculate the horizontal offset from the left column.
+    # # add the vertical and horizontal offsets to the top-left corner of the bitmap.
+    # sw $t3, 0($t0)
+    # addi $t5, $t5, 1             # increment the loop variable.
+    # addi $t0, $t0, 4             # move to the next pixel in the row (each pixel is 4 bytes).
+    # beq $t5, $a2, pixel_draw_end # break out of the loop after drawing the last pixel in this row/line.
+    # j pixel_draw_start           # currently, this is an infinite loop
+    # pixel_draw_end:              # the end label for the pixel drawing loop. If we do not include this, we get an infinite loop. No conditions here.
+    # jr $ra                       # return to the calling program. $ra stands for return address. When this function is called (jumped into), the address from where we enter the function is stored in $ra.
+    # ## end of draw_line function
+
+game_loop:
+    # 1a. Check if key has been pressed
+    # 1b. Check which key has been pressed
+    # 2a. Check for collisions
+	# 2b. Update locations (capsules)
+	# 3. Draw the screen
+	# 4. Sleep
+
+    # jal draw_bottle
+
+    capsule_outline:
+      addi $a0, $zero, 128                            # Initialize $a0 to 128.
+      beq $t7, 1, determine_capsule_landing_vertical  # If the capsule is horizontal, execute the function which draws a outline of the capsule when it's horizontal.
+      add $a1, $t5, $a0                               # $a1 stores the position of the current pixel vertically below the left half of the capsule.
+      add $a2, $t6, $a0                               # $a2 stores the position of the current pixel vertically below the right half of the capsule.
+      lw $t1, 0($a1)                                  # Load the colour of the pixel $a1 currently stores in $t1.
+      lw $t2, 0($a2)                                  # Load the colour of the pixel $a2 currently stores in $t2.
+      bne $t1, 0x000000, check_game_over                    # If the current pixel vertically below the left half of the capsule isn't black at this stage, then game_over.
+      bne $t2, 0x000000, check_game_over                    # If the current pixel vertically below the right half of the capsule isn't black at this stage, then game_over.
+      
+    determine_capsule_landing_horizontal:             # Draws a outline of the capsule where it will land if it continues going down the same path.
+      lw $t1, 0($a1)                                  # Load the colour of the pixel $a1 currently stores in $t1.
+      lw $t2, 0($a2)                                  # Load the colour of the pixel $a2 currently stores in $t2.
+      bne $t1, 0x000000, draw_outline_horizontal      # If the current pixel vertically below the left half of the capsule isn't black, then draw the outline of the capsule.
+      bne $t2, 0x000000, draw_outline_horizontal      # If the current pixel vertically below the right half of the capsule isn't black, then draw the outline of the capsule.
+      addi $a1, $a1, 128                              # Move the pointer pointing to pixels vertically below the left half 1 row down.
+      addi $a2, $a2, 128                              # Move the pointer pointing tto pixels vertically below the right half 1 row down.
+      j determine_capsule_landing_horizontal          # Repeat the loop.
+
+    draw_outline_horizontal:
+      li $t3, 0x444444              # The colour of the capsule outline.
+      addi $a1, $a1, -128           # Move $t1 up by one row.
+      addi $a2, $a2, -128           # Move $t2 up by one row.
+      beq $a1, $t5, keyboard_input  # If the position of the outline coincides with that of the capsule, do not draw the outline.
+      beq $a2, $t6, keyboard_input  # If the position of the outline coincides with that of the capsule, do not draw the outline.
+      # addi $t1, $t5, 128  # Check right below the left half of the capsule.
+      # addi $t2, $t6, 128  # Check right below the right half of the capsule.
+      # beq $a1, $t1, erase_outline  # If the capsule is right above where the outline is, erase the outline.
+      # beq $a2, $t2, erase_outline  # If the capsule is right above where the outline is, erase the outline.
+      sw $t3, 0($a1)                # Paint the outline of the capsule right above the obstacle.
+      sw $t3, 0($a2)                # Paint the outline of the capsule right above the obstacle.
+      # Save the position of the outline in permanent registers.
+      addi $s5, $a1, 0              # Left half
+      addi $s6, $a2, 0              # Right half
+      j keyboard_input              # Listen for keyboard input once the capsule outline is drawn.
+
+    determine_capsule_landing_vertical:
+      # Different outline generation functions for different orientations
+      beq $t9, 0, determine_capsule_landing_vertical_a  # When the orientation is default vertical
+      beq $t9, 1, determine_capsule_landing_vertical_b  # When the orientation is non-default vertical
+
+    determine_capsule_landing_vertical_a:
+      # $t5 below $t6
+      add $a1, $t5, $a0                           # $a1 stores the position of the current pixel vertically below the left half of the capsule.
+      lw $t1, 0($a1)                              # Load the colour of the pixel $a1 currently stores in $t1.
+      bne $t1, 0x000000, draw_outline_vertical_a  # If the current pixel vertically below the left half of the capsule isn't black, then draw the outline of the capsule.
+      addi $a0, $a0, 128                          # Move the pointer pointing to pixels vertically below the left half 1 row down.
+      j determine_capsule_landing_vertical_a      # Repeat the loop
+
+    determine_capsule_landing_vertical_b:
+      # $t6 below $t5
+      add $a2, $t6, $a0                           # $a2 stores the position of the current pixel vertically below the right half of the capsule.
+      lw $t2, 0($a2)                              # Load the colour of the pixel $a2 currently stores in $t2.
+      bne $t2, 0x000000, draw_outline_vertical_b  # If the current pixel vertically below the right half of the capsule isn't black, then draw the outline of the capsule.
+      addi $a0, $a0, 128                          # Move the pointer pointing to pixels vertically below the left half 1 row down.
+      j determine_capsule_landing_vertical_b      # Repeat the game_loop
+
+    draw_outline_vertical_a:
+      li $t3, 0x444444              # The colour of the capsule outline.
+      addi $a1, $a1, -128           # Move $t1 up by one row.
+      beq $a1, $t5, keyboard_input  # If the position of the potential outline coincides with that of the capsule, do not draw the outline.
+      addi $a2, $a1, -128           # Two spots above the obstacle.
+      beq $a2, $t5, keyboard_input  # If the position of the potential outline coincides with that of the capsule, do not draw the outline. 
+      # Paint the outline of the capsule right above the obstacle.
+      sw $t3, 0($a1)                # Left (bottom) half
+      sw $t3, -128($a1)             # Right (upper) half
+      addi $s5, $a1, 0              # Left (bottom) half
+      addi $s6, $s5, -128           # Right (upper) half
+      j keyboard_input              # Listen for keyboard input once the capsule outline is drawn.
+
+    draw_outline_vertical_b:
+      li $t3, 0x444444              # The colour of the capsule outline.
+      addi $a2, $a2, -128           # Move $a2 up by one row.
+      beq $a2, $t6, keyboard_input  # If the position of the potential outline coincides with that of the capsule, do not draw the outline.
+      addi $a3, $a2, -128           # Two spots above the capsule.
+      beq $a3, $t6, keyboard_input  # If the position of the potential outline coincides with that of the capsule, do not draw the outline.
+      # Paint the outline of the capsule right above the obstacle.
+      sw $t3, -128($a2)             # Left (upper) half
+      sw $t3, 0($a2)                # Right (bottom) half
+      addi $s6, $a2, 0              # Right (bottom) half
+      addi $s5, $s6, -128           # Left (upper) half
+      j keyboard_input              # Listen for keyboard input once the capsule outline is drawn.
+
+    erase_outline:
+      li $a0, 0x00ffff               # Store the colour code for cyan in $a0.
+      lw $a1, 128($t5)               # $a1 stores the colour below the left half of the capsule.
+      lw $a2, 128($t6)               # $a2 stores the colour below the right half of the capsule.
+      beq $a1, $a0, keyboard_input   # If the left half of the capsule is at the bottom of the bottle, do not erase the outline (outline is not visible).
+      beq $a2, $a0, keyboard_input   # If the right half of the capsule is at the bottom of the bottle, do not erase the outline (outline is not visible).
+      beq $t6, $s5, capsule_outline  # If the new position of the right half of the capsule coincides with the old left half of the outline, do not erase outline (outline is not visible)
+      beq $t5, $s6, capsule_outline  # If the new position of the left half of the capsule coincides with the old right half of the outline, do not erase the outline (outline is not visible)
+      beq $t5, $s5, capsule_outline  # If the new position of the left half of the capsule coincides with the old left half of the outline, do not erase the outline.
+      beq $t6, $s6, capsule_outline  # If the new position of the right half of the capsule coincides with the old right half of the outline, do not erase the outline.
+      li $a3, 0x000000               # $a3 stores the colour black
+      sw $a3, 0($s5)                 # Erase the left half of the capsule outline.
+      sw $a3, 0($s6)                 # Erase the right half of the capsule outline.
+      j capsule_outline              # Jump back to capsule_outline to draw a new capsule outline based on the new position of the capsule. 
+    
+
+keyboard_input:
+    lw $t0, ADDR_KBRD    # loading the keyboard address
+    lw $t1, 0($t0)       # we are checking if any key has been pressed
+    beq $t1, $zero, no_key_pressed # this basically runs another label "no_key_pressed" when the value in temp register 1 equals 0 
+    lw $t2, 4($t0)       # this gets us the ASCII value of whatever the user pressed.
+    
+    lw $s4, is_paused  # Store the value of is_paused in $t4
+    beq $s4, 1, check_for_unpause_or_quit  # If the game is paused, then only check for certain inputs.
+
+    
+    li $t3, 'a'
+    beq  $t2, $t3, step_left # if 'a' is pressed, step to the left
+    li $t3, 'd'
+    beq  $t2, $t3, step_right # if 'd' is pressed, step to the right
+    li $t3, 's'
+    beq  $t2, $t3, step_down # if 's' is pressed, step down
+    li $t3, 'w'
+    beq  $t2, $t3, rotate_capsule # if 'w' is pressed, rotate the capsule
+    li $t3, 'q'
+    beq  $t2, $t3, quit_game # if 'q' is pressed, quit the game
+    li $t3, 'p'
+    beq  $t2, $t3, draw_pause_screen
+    li $t3, 'v'
+    beq $t3, $t3, save_or_retrieve
+    
+check_for_unpause_or_quit:
+    li $t3, 'p'
+    beq $t2, $t3, erase_pause_bars  # If 'p' is pressed while in the pause state, then unpause the game.
+    li $t3, 'q'
+    beq $t2, $t3, quit_game  # If 'q' is clicked, quit the game.
+    
+no_key_pressed:
+  lw $a0, is_paused
+  beq $a0, 1, skip_gravity
+  timed_gravity:
+    addi $a2, $t8, 0  # Saving the old value of $t8
+    addi $a3, $t9, 0  # Saving the old value of $t9
+    addi $a0, $t8, 0
+    addi $a1, $t9, 0
+    la $t8, gravity_counter
+    lw $t9, 0($t8)
+    addi $t9, $t9, 1
+    sw $t9, 0($t8)
+
+    lw $t7, gravity_speed            # lower = faster
+    blt $t9, $t7, skip_gravity
+
+    li $t9, 0
+    sw $t9, 0($t8)    # reset gravity counter
+    addi $t8, $a0, 0  
+    addi $t9, $a1, 0  
+    addi $t8, $a2, 0  # Restoring the old value of $t8
+    addi $t9, $a3, 0  # Restoring the old value of $t9
+    jal step_down     # make capsule fall one row
+
+skip_gravity:
+  addi $t8, $a2, 0  # Restoring the old value of $t8
+  addi $t9, $a3, 0  # Restoring the old value of $t9
+  j keyboard_input
+
+step_left:                  # calls detect_collision_left before moving the capsule.
+  # current positions, hardcoding the display plus 576, 580 because or else it was giving an error
+
+  # first check to see if there's a collision.
+    
+  lw $t8, capsule_orientation_horizontal
+  lw $t7, is_vertical
+
+  beq $t7, 1, vertical_left
+
+  beq $t8, 0, horizontal_left_a
+  j horizontal_left_b
+
+  horizontal_left_a:
+  lw $a3, -4($t5)                    # load the colour of the pixel to the left of the capsule (left of the left-half of the capsule) in $a0.
+  bne $a3, 0x000000, keyboard_input  # if the pixel to the left is not black, it implies that there is an object (virus or wall) so listen for keyboard input and do not move the capsule.
+  # lw $a3, -4($t6)                    # load the colour of the pixel to the left of the capsule (left of the right-half of the capsule) in $a3.
+  # bne $a3, 0x000000, keyboard_input  # if the pixel to the left is not black, it implies that there is an object (virus or wall) so listen for keyboard input and do not move the capsule.
+  # erase current capsule (paint black)
+  li $t4, 0x000000
+  lw $a0, 0($t5)  # Fetch the colour stored in the left half of the capsule.
+  lw $a1, 0($t6)  # Fetch the colour stored in the right half of the caspule.
+  sw $t4, 0($t5)  # Paint the left half black (erase it)
+  sw $t4, 0($t6)  # Paint the right half black (erase it)
+  # move the left and right half of the capsule to the left
+  addi $t5, $t5, -4  
+  addi $t6, $t6, -4
+  sw $a0, 0($t5)
+  sw $a1, 0($t6)
+  j erase_outline
+
+  horizontal_left_b:
+  lw $a3, -4($t6)                    # load the colour of the pixel to the left of the capsule (left of the left-half of the capsule) in $a0.
+  bne $a3, 0x000000, keyboard_input  # if the pixel to the left is not black, it implies that there is an object (virus or wall) so listen for keyboard input and do not move the capsule.
+  # erase current capsule (paint black)
+  li $t4, 0x000000
+  lw $a0, 0($t5)  # Fetch the colour stored in the left half of the capsule.
+  lw $a1, 0($t6)  # Fetch the colour stored in the right half of the caspule.
+  sw $t4, 0($t5)  # Paint the left half black (erase it)
+  sw $t4, 0($t6)  # Paint the right half black (erase it)
+  # move the left and right half of the capsule to the left
+  addi $t5, $t5, -4  
+  addi $t6, $t6, -4
+  sw $a0, 0($t5)
+  sw $a1, 0($t6)
+  j erase_outline
+
+  vertical_left:
+    lw $a0, -4($t5)  # Load the colour of the pixel to the left of the left half of the capsule in $a0.
+    lw $a1, -4($t6)  # Load the colour of the pixel to the left of the right half of the capsule in $a1.
+    bne $a0, 0x000000, keyboard_input
+    bne $a1, 0x000000, keyboard_input
+    li $t4, 0x000000
+    lw $a2, 0($t5)  # Fetch the colour stored in the left half of the capsule.
+    lw $a3, 0($t6)  # Fetch the colour stored in the right half of the caspule.
+    sw $t4, 0($t5)  # Paint the left half black (erase it)
+    sw $t4, 0($t6)  # Paint the right half black (erase it)
+    # move the left and right half of the capsule to the left
+    addi $t5, $t5, -4  
+    addi $t6, $t6, -4
+    sw $a2, 0($t5)
+    sw $a3, 0($t6)
+    j erase_outline
+
+step_right:  # calls detect_collision_right before moving the capsule
+  # current positions, hardcoding the display plus 576, 580 in hex because or else it was giving an error
+  # also right now we are hardcoding the location, but once all the logic is done, we can simply just replace that with the register that holds the curr location of the capsule
+
+  lw $t8, capsule_orientation_horizontal
+  lw $t7, is_vertical
+
+  beq $t7, 1, vertical_right
+
+  beq $t8, 0, horizontal_right_a
+  j horizontal_right_b
+
+  horizontal_right_a:
+  lw $a3, 4($t6)                     # load the colour of the pixel to the right of the right-half of the capsule in $a1.
+  bne $a3, 0x000000, keyboard_input  # if the pixel to the right is not black, it implies that there is an object (virus or wall) so listen for keyboard input and do not move the capsule. 
+  # erase current capsule (paint black)
+  li $t4, 0x000000
+  lw $a0, 0($t5)  # Fetch the colour stored in the left half of the capsule.
+  lw $a1, 0($t6)  # Fetch the colour stored in the right half of the caspule.
+  sw $t4, 0($t5)  # Paint the left half black (erase it)
+  sw $t4, 0($t6)  # Paint the right half black (erase it)
+  # move the left and right halves of the capsule to the right
+  addi $t5, $t5, +4
+  addi $t6, $t6, +4
+  # draw capsule at new position (in cyan). Using cyan for now, will later modify milestone 1 to store the color so that it can stay the same color after shifting
+  # li $t4, 0x00ffff
+  sw $a0, 0($t5)
+  sw $a1, 0($t6)
+  j erase_outline # jumping back to keyboard input to wait for another input
+
+  horizontal_right_b:
+  lw $a3, 4($t5)                     # load the colour of the pixel to the right of the right-half of the capsule in $a1.
+  bne $a3, 0x000000, keyboard_input  # if the pixel to the right is not black, it implies that there is an object (virus or wall) so listen for keyboard input and do not move the capsule. 
+  # erase current capsule (paint black)
+  li $t4, 0x000000
+  lw $a0, 0($t5)  # Fetch the colour stored in the left half of the capsule.
+  lw $a1, 0($t6)  # Fetch the colour stored in the right half of the caspule.
+  sw $t4, 0($t5)  # Paint the left half black (erase it)
+  sw $t4, 0($t6)  # Paint the right half black (erase it)
+  # move the left and right halves of the capsule to the right
+  addi $t5, $t5, +4
+  addi $t6, $t6, +4
+  # draw capsule at new position (in cyan). Using cyan for now, will later modify milestone 1 to store the color so that it can stay the same color after shifting
+  # li $t4, 0x00ffff
+  sw $a0, 0($t5)
+  sw $a1, 0($t6)
+  j erase_outline # jumping back to keyboard input to wait for another input
+
+  vertical_right:
+    lw $a0, 4($t5)  # Load the colour of the pixel to the left of the left half of the capsule in $a0.
+    lw $a1, 4($t6)  # Load the colour of the pixel to the left of the right half of the capsule in $a1.
+    bne $a0, 0x000000, keyboard_input
+    bne $a1, 0x000000, keyboard_input
+    li $t4, 0x000000
+    lw $a2, 0($t5)  # Fetch the colour stored in the left half of the capsule.
+    lw $a3, 0($t6)  # Fetch the colour stored in the right half of the caspule.
+    sw $t4, 0($t5)  # Paint the left half black (erase it)
+    sw $t4, 0($t6)  # Paint the right half black (erase it)
+    # move the left and right half of the capsule to the left
+    addi $t5, $t5, 4  
+    addi $t6, $t6, 4
+    sw $a2, 0($t5)
+    sw $a3, 0($t6)
+    j erase_outline
+  
+step_down:  # calls detect_collision_down before moving the capsule
+  lw $t0, ADDR_DSPL  # Load base display address
+
+  lw $t7, is_vertical                   # $t7 == 1 imples that the capsule is vertical, and 0 implies horizontal
+
+  beq $t7, 1, vertical_down_a           # if $t7 == 1, i.e., the capsule is vertical, then execute vertical_down.
+  lw $a3, 128($t5)                        # load the colour of the pixel below the left half of the cpasule in $a3. We check below the left half because when the capsule is horizontal, both left and right are on the same level, but one it is vertical, the left one is below the right.
+  bne $a3, 0x000000, check_for_outline_horizontal_left  # three_way_colour_check  # if the pixel to the bottom is not black, it implies that there is an object underneath the capsule (virus or wall). In this case, we stop moving this capsule and generate a new one.
+  lw $a3, 128($t6)                        # load the colour of the pixel below the right half of the capsule in $a3.
+  bne $a3, 0x000000, check_for_outline_horizontal_right  # three_way_colour_check  # if the pixel to the bottom is not black, it implies that there is an object underneath the capsule (virus or wall). In this case, we stop moving this capsule and generate a new one.
+    
+  horizontal_down:
+    # Erase current capsule (paint black)
+    li $t4, 0x000000
+    lw $a0, 0($t5)  # Fetch the colour stored in the left half of the capsule.
+    lw $a1, 0($t6)  # Fetch the colour stored in the right half of the caspule.
+    sw $t4, 0($t5)  # Paint the left-half black (erase it)
+    sw $t4, 0($t6)  # Paint the right-half black (erase it)
+
+    # Move both halves down by 1 row = +128 bytes
+    addi $t5, $t5, 128
+    addi $t6, $t6, 128
+
+    sw $a0, 0($t5)
+    sw $a1, 0($t6)
+
+    # jal check_all_collision_situations
+    j keyboard_input
+  
+  vertical_down_a:
+    lw $t2, capsule_orientation_vertical  # store the vertical orientation of the capsule in $t2.
+    beq $t2, 1, vertical_down_b  # if $t2 == 1,then execute vertical_down_b
+    lw $a3, 128($t5)  # load the colour of the pixel below the left half of the capsule.
+    bne $a3, 0x000000, check_for_outline_vertical_a  # if $a3 isn't black, check to see if the obstacle is an outline of the capsule.
+  
+    move_vertical_down_a:
+    # Erase current capsule (paint black)
+    li $t4, 0x000000
+    lw $a0, 0($t5)  # Fetch the colour stored in the left half of the capsule.
+    lw $a1, 0($t6)  # Fetch the colour stored in the right half of the caspule.
+    sw $t4, 0($t5)  # Paint the left-half black (erase it)
+    sw $t4, 0($t6)  # Paint the right-half black (erase it)
+
+    # Move both halves down by 1 row = +128 bytes
+    addi $t5, $t5, 128
+    addi $t6, $t6, 128
+
+    sw $a0, 0($t5)
+    sw $a1, 0($t6)
+
+    # jal check_all_collision_situations
+    j keyboard_input
+
+  vertical_down_b:
+    lw $a3, 128($t6)                                 # load the colour of the pixel below the right half of the capsule.
+    bne $a3, 0x000000, check_for_outline_vertical_b  # if $a3 isn't black, then check to see if the obstacle is an outline of the capsule.
+    
+    move_vertical_down_b:
+    # Erase current capsule (paint black)
+    li $t4, 0x000000
+    lw $a0, 0($t5)  # Fetch the colour stored in the left half of the capsule.
+    lw $a1, 0($t6)  # Fetch the colour stored in the right half of the caspule.
+    sw $t4, 0($t5)  # Paint the left-half black (erase it)
+    sw $t4, 0($t6)  # Paint the right-half black (erase it)
+
+    # Move both halves down by 1 row = +128 bytes
+    addi $t5, $t5, 128
+    addi $t6, $t6, 128
+
+    sw $a0, 0($t5)
+    sw $a1, 0($t6)
+
+    # jal check_all_collision_situations
+    j keyboard_input
+
+  check_for_outline_horizontal_left:
+    # addi $sp, $sp, -4             # Make space on the stack
+    # sw $ra, 0($sp)                # Save return address
+    addi $a0, $t5, 128              # Check for the pixel immediately below the left half of the capsule.
+    bne $a0, $s5, check_all_collision_situations  # If the pixel immediately below the left half of the capsule isn't the capsule's outline, then draw a new capsule.
+    # lw $ra, 0($sp)                # Restore return address
+    # addi $sp, $sp, 4              # Free stack space
+    # jr $ra
+    j check_for_outline_horizontal_right
+
+  check_for_outline_horizontal_right:
+    # addi $sp, $sp, -4             # Make space on the stack
+    # sw $ra, 0($sp)                # Save return address
+    addi $a0, $t6, 128              # Check for the pixel immediately below the right half of the capsule.
+    bne $a0, $s6, check_all_collision_situations  # If the pixel immediately below the left half of the capsule isn't the capsule's outline, then draw a new capsule.
+    # lw $ra, 0($sp)                # Restore return address
+    # addi $sp, $sp, 4              # Free stack space
+    # jr $ra
+    j horizontal_down
+
+    jal check_all_collision_situations
+    j keyboard_input
+
+  check_for_outline_vertical_a:
+    addi $a0, $t5, 128
+    bne $a0, $s6, check_all_collision_situations
+    li $a1, 0x000000
+    sw $a1, 0($s5)
+    sw $a1, 0($s6)
+    j move_vertical_down_a
+
+  check_for_outline_vertical_b:
+    addi $a0, $t6, 128
+    bne $a0, $s5, check_all_collision_situations
+    li $a1, 0x000000
+    sw $a1, 0($s5)
+    sw $a1, 0($s6)
+    j move_vertical_down_b
+#   lw $t7, is_vertical
+#   lw $t0, ADDR_DSPL        # Load base display address
+
+#   lw $a3, 128($t5)                               # load the colour of the pixel below the left half of the cpasule in $a3. We check below the left half because when the capsule is horizontal, both left and right are on the same level, but one it is vertical, the left one is below the right.
+#   bne $a3, 0x000000, check_game_over  # if the pixel to the bottom is not black, it implies that there is an object underneath the capsule (virus or wall). In this case, we stop moving this capsule and generate a new one.
+
+#   beq $t7,0, check_under_right
+#   j next_part
+  
+# check_under_right:
+#     lw $a3, 128($t6)                               # load the colour of the pixel below the right half of the cpasule in $a3.
+#     bne $a3, 0x000000, check_game_over  # if the pixel to the bottom is not black, it implies that there is an object underneath the capsule (virus or wall). In this case, we stop moving this capsule and generate a new one.
+
+
+# next_part:  
+#   # Erase current capsule (paint black)
+#   li $t4, 0x000000
+#   lw $a0, 0($t5)  # Fetch the colour stored in the left half of the capsule.
+#   lw $a1, 0($t6)  # Fetch the colour stored in the right half of the caspule.
+#   sw $t4, 0($t5)  # Paint the left-half black (erase it)
+#   sw $t4, 0($t6)  # Paint the right-half black (erase it)
+
+#   # Move both halves down by 1 row = +128 bytes
+#   addi $t5, $t5, 128
+#   addi $t6, $t6, 128
+
+#   sw $a0, 0($t5)
+#   sw $a1, 0($t6)   
+
+  ### gradually increase gravity
+  la $t0, gravity_speed
+  lw $t1, 0($t0)
+  li $t2, 200                    # decrease amount to reduce the gravity_speed which in turn makes the gravity higher
+  sub $t1, $t1, $t2
+
+  # Prevent it from getting too fast (cap it)
+  li $t3, 1                # minimum speed
+  bge $t1, $t3, store_new_speed
+  move $t1, $t3                   # add up to min speed
+
+store_new_speed:
+    sw $t1, 0($t0)
+jal check_all_collision_situations
+j keyboard_input
+
+
+rotate_capsule:
+  lw $t0, ADDR_DSPL        # Make sure $t0 has display address again
+
+  lw $t7, is_vertical      # Load current orientation
+  beq $t7, 0, hori_to_vert
+  j vert_to_hori           # If not 0, must be vertical
+
+hori_to_vert:
+  lw $t8, capsule_orientation_horizontal  # $t8 stores 0 if the capsule's orientation is the same as when it started and 1 otherwise
+  # Check space BELOW left half
+  # lw $a3, 128($t5)
+  # bne $a3, 0x000000, erase_outline
+
+  # Check ABOVE left half (new right pixel)
+  lw $a3, -128($t5)
+  bne $a3, 0x000000, erase_outline
+
+  # Rotation is safe → rotate to vertical
+  li $t4, 0x000000
+  
+  anti_clockwise_hv:
+    beq $t8, 1, clockwise_hv  # if $t8 == 1, then perform a clockwise horizontal to vetical rotation
+    lw $a1, 0($t6)            # Save old right half color
+    sw $t4, 0($t6)            # Erase right half
+    addi $t6, $t5, -128       # Move right half on top of left half
+    sw $a1, 0($t6)
+
+    li $t9, 0
+    sw $t9, capsule_orientation_vertical
+    
+    li $t7, 1
+    sw $t7, is_vertical
+    j erase_outline
+
+  clockwise_hv:
+    lw $a1, 0($t5)       # Save old left half color
+    lw $a2, 0($t6)       # Save old right half colour
+    sw $t4, 0($t5)       # Erase left half
+    addi $t5, $t6, -128  # Move left half ($t5) on top of where the right half previosuly was
+    sw $a1, 0($t5)
+
+    li $t9, 1
+    sw $t9, capsule_orientation_vertical
+
+    li $t7, 1
+    sw $t7, is_vertical
+    j erase_outline
+
+vert_to_hori:
+  lw $t9, capsule_orientation_vertical
+  beq $t9, 0, anti_clockwise_vh
+  j clockwise_vh
+  
+anti_clockwise_vh:
+  # Check space LEFT of $t5
+  lw $a3, 4($t5)
+  bne $a3, 0x000000, erase_outline
+
+  li $t4, 0x000000
+  lw $a1, 0($t6)      # Save old $t6 colour
+  lw $a2, 0($t5)      # Save old $t5 colour
+  sw $t4, 0($t6)      # Erase right (upper) half
+  sw $t4, 0($t5)      # Erase left (bottom) half
+
+  addi $t6, $t5, 0   # New right half is the old left half
+  addi $t5, $t5, 4   # New left half is right of new right half
+  sw $a1, 0($t6)     # Paint in the old colour of the right half in the new right half position
+  sw $a2, 0($t5)     # Paint in the old colour of the left half in the new left half position
+  
+  li $t8, 1
+  sw $t8, capsule_orientation_horizontal
+  
+  li $t7, 0
+  sw $t7, is_vertical
+  j erase_outline
+
+clockwise_vh:
+  # Check space RIGHT of right (lower) half
+  lw $a3, 4($t6)
+  bne $a3, 0x000000, erase_outline
+
+  li $t4, 0x000000
+  lw $a1, 0($t5)  # Save old left (upper) half colour
+  lw $a2, 0($t6)  # Save old right (lower) half colour
+  sw $t4, 0($t6)  # Erase right (lower) half
+  sw $t4, 0($t5)  # Erase left (upper) half
+
+  addi $t6, $t6, 4    # New right half is right of old right half
+  sw $a2, 0($t6)      # Paint in the old colour of the right half in the new right half position
+  addi $t5, $t5, 128  # New left half is directly below the old left half
+  sw $a1, 0($t5)      # Paint the new left half 
+
+  li $t8, 0
+  sw $t8, capsule_orientation_horizontal
+
+  li $t7, 0
+  sw $t7, is_vertical
+  j erase_outline
+
+draw_pause_screen: 
+  li $t1, 0xffffff     # Storing the colour code for white in $t1.
+  addi $s4, $zero, 1   # $s4 is now 1.
+  sw $s4, is_paused    # Store the new value of is_paused.
+  add $a0, $zero, $s2  # Register for storing the position from where the left vertical pause bar would be drawn.
+  add $a1, $zero, $s3  # Register for storing the position from where the right vertical pause bar would be drawn.
+  li $t3, 0            # loop variable for draw_left_bar
+  li $t4, 0            # loop variable for draw_right_bar
+  # j skip_gravity
+  # j draw_left_bar
+  # j draw_right_bar
+
+  draw_left_bar:
+    beq $t3, 3, draw_right_bar  # Once the left bar is drawn, draw the right bar.
+    sw $t1, 0($a0)              # Paint the pixel $a0 currently stores white.
+    addi $a0, $a0, 128          # Move $a0 down 1 row.
+    addi $t3, $t3, 1            # Increment the loop variable.
+    j draw_left_bar             # Repeat the loop.
+
+  draw_right_bar:
+    beq $t4, 3, skip_gravity  # jump back to draw_pause_screen once done drawing the right bar.
+    sw $t1, 0($a1)              # Paint the pixel $a1 currently stores white.
+    addi $a1, $a1, 128          # Move $a1 down 1 row.
+    addi $t4, $t4, 1            # Increment the loop variable.
+    j draw_right_bar            # Repeat the loop.
+    j skip_gravity
+
+  listen_for_unpause:
+    lw $t2, 4($t0)                  # This gets us the ASCII value of whatever the user pressed.
+    beq $t2, 'p', erase_pause_bars  # Erase the pause bars if p is clicked again
+    j listen_for_unpause            # Stay in this state unless asked to unpause.
+
+  erase_pause_bars:
+    li $t1, 0x000000     # $t1 stores the colour code for black.
+    lw $s4, is_paused    # $s4 stores a value which determines whether or not the game is paused.
+    li $s4, 0            # Update $s4 to store 0 (indicating that the game is paused now).
+    sw $s4, is_paused    # Update is_paused to store the new value.
+    add $a0, $zero, $s2  # Register for storing the position from where the left vertical pause bar is drawn.
+    add $a1, $zero, $s3  # Register for storing the position from where the right vertical pause bar is drawn.
+    li $t3, 0            # loop variable for erase_left_bar
+    li $t4, 0            # loop variable for erase_right_bar
+    
+  erase_left_bar:
+    beq $t3, 3, draw_right_bar  # Once the left bar is erased, erase the right bar.
+    sw $t1, 0($a0)              # Paint the pixel $a0 currently stores black.
+    addi $a0, $a0, 128          # Move $a0 down 1 row.
+    addi $t3, $t3, 1            # Increment the loop variable.
+    j draw_left_bar             # Repeat the loop.
+
+  erase_right_bar:
+    beq $t4, 3, keyboard_input  # Jump back to draw_pause_screen once done erasing the right bar.
+    sw $t1, 0($a1)              # Paint the pixel $a1 currently stores black.
+    addi $a1, $a1, 128          # Move $a1 down 1 row.
+    addi $t4, $t4, 1            # Increment the loop variable.
+    j draw_right_bar            # Repeat the loop.
+    j apply_gravity
+
+  save_or_retrieve:
+    lw $a0, capsule_saved         # Load the value of the variable capsule_saved in $a0
+    beq $a0, 0, save_capsule      # If $a0 == 0, it means that no capsule is currently saved so save the current one.
+    beq $a0, 1, retrieve_capsule  # If $a1 == 1, it means that a capsule is currently saved, so we retrieve it.
+
+  save_capsule:
+    lw $a1, 0($t5)         # Store the colour of the left half of the capsule in $a1.
+    lw $a2, 0($t6)         # Store the colour of the right half of the capsule in $a2.
+    sw $a1, 0($s7)         # Paint the left half of the saved capsule on the side.
+    sw $a2, 4($s7)         # Paint the right half of the saved capsule next to the left half.
+    li $a0, 1              # Update $a0
+    sw $a0, capsule_saved  # Update capsule_saved
+    li $a3, 0x000000       # $a3 stores the colour black
+    # Erase the current capsule from the previous position
+    sw $a3, 0($t5)
+    sw $a3, 0($t6)
+    # Erase the outline of the capsule
+    sw $a3, 0($s5)
+    sw $a3, 0($s6)
+    j draw_new_capsule     # Listen for new input
+
+  retrieve_capsule:
+    # Fetch the colour of the saved capsule.
+    lw $a1, 0($s7)
+    lw $a2, 4($s7)
+    # Paint the position the capsule is currently at with these colours
+    sw $a1, 0($t5)
+    sw $a2, 0($t6)
+    li $a0, 0              # Update $a0
+    sw $a0, capsule_saved  # Update capsule_saved
+    li $a3, 0x000000       # $a3 stores the colour black
+    # Erase the saved capsule from the previous position
+    sw $a3, 0($s7)
+    sw $a3, 4($s7)
+    j keyboard_input       # Listen for new input
+  
+#################################### START OF THE CHECKS ################  
+
+check_all_collision_situations:
+
+check_leftrow_all_3left:
+    lw $t0, 0($t5)
+    lw $t1, -4($t5)
+    lw $t2, -8($t5)
+    lw $t3, -12($t5)
+    beq $t0, $t1, ll1
+    j check_leftrow_all_3right
+
+ll1:
+    bne $t1, $t2, check_leftrow_all_3right
+
+ll2:
+    bne $t2, $t3, check_leftrow_all_3right
+
+make_left_row_left_all_match_1:
+    li $t9, 1
+    la $t0, make_left_row_left_all_match
+    sw $t9, 0($t0)
+    j check_the_var_for_all_left_ofleft
+
+check_the_var_for_all_left_ofleft:
+    la $t0, make_left_row_left_all_match
+    lw $t9, 0($t0)
+    beq $t9, 1, clear_left_row_allleft
+
+###################################################################################################
+check_leftrow_all_3right:
+    lw $t0, 0($t5)
+    lw $t1, 4($t5)
+    lw $t2, 8($t5)
+    lw $t3, 12($t5)
+    beq $t0, $t1, lr1
+    j check_leftrow_2left_1right
+
+lr1:
+    bne $t1, $t2, check_leftrow_2left_1right
+
+lr2:
+    bne $t2, $t3, check_leftrow_2left_1right
+
+make_left_row_right_all_match_1:
+    li $t9, 1
+    la $t0, make_left_row_right_all_match
+    sw $t9, 0($t0)
+    j check_the_var_for_all_right_ofleft
+
+check_the_var_for_all_right_ofleft:
+    la $t0, make_left_row_right_all_match
+    lw $t9, 0($t0)
+    beq $t9, 1, clear_left_row_allright
+
+###################################################################################################
+check_leftrow_2left_1right:
+    lw $t0, 0($t5)
+    lw $t1, -4($t5)
+    lw $t2, -8($t5)
+    lw $t3, 4($t5)
+    beq $t0, $t1, lra1
+    j check_leftrow_1left_2right
+
+lra1:
+    bne $t1, $t2, check_leftrow_1left_2right
+
+lra2:
+    bne $t2, $t3, check_leftrow_1left_2right
+
+make_leftrow_2left_1right_match_1:
+    li $t9, 1
+    la $t0, make_leftrow_2left_1right_match
+    sw $t9, 0($t0)
+    j check_the_var_for_2left_1right_ofleft
+
+check_the_var_for_2left_1right_ofleft:
+    la $t0, make_leftrow_2left_1right_match
+    lw $t9, 0($t0)
+    beq $t9, 1, clear_left_row_2left_1right
+
+###################################################################################################
+check_leftrow_1left_2right:
+    lw $t0, 0($t5)
+    lw $t1, 4($t5)
+    lw $t2, 8($t5)
+    lw $t3, -4($t5)
+    beq $t0, $t1, lrlr1
+    j check_rightrow_all_3left
+
+lrlr1:
+    bne $t1, $t2, check_rightrow_all_3left
+
+lrlr2:
+    bne $t2, $t3, check_rightrow_all_3left
+
+make_leftrow_1left_2right_match_1:
+    li $t9, 1
+    la $t0, make_leftrow_1left_2right_match
+    sw $t9, 0($t0)
+    j check_the_var_for_1left_2right_ofleft
+
+check_the_var_for_1left_2right_ofleft:
+    la $t0, make_leftrow_1left_2right_match
+    lw $t9, 0($t0)
+    beq $t9, 1, clear_left_row_2right_1left
+
+################################################################################
+check_rightrow_all_3left:
+    lw $t0, 0($t6)
+    lw $t1, -4($t6)
+    lw $t2, -8($t6)
+    lw $t3, -12($t6)
+    beq $t0, $t1, rll1
+    j check_rightrow_all_3right
+
+rll1:
+    bne $t1, $t2, check_rightrow_all_3right
+
+rll2:
+    bne $t2, $t3, check_rightrow_all_3right
+
+make_right_row_left_all_match_1:
+    li $t9, 1
+    la $t0, make_right_row_left_all_match
+    sw $t9, 0($t0)
+    j check_the_var_for_all_left_ofright
+
+check_the_var_for_all_left_ofright:
+    la $t0, make_right_row_left_all_match
+    lw $t9, 0($t0)
+    beq $t9, 1, clear_right_row_allleft
+
+###################################################################################################
+check_rightrow_all_3right:
+    lw $t0, 0($t6)
+    lw $t1, 4($t6)
+    lw $t2, 8($t6)
+    lw $t3, 12($t6)
+    beq $t0, $t1, rlr1
+    j check_rightrow_2left_1right
+
+rlr1:
+    bne $t1, $t2, check_rightrow_2left_1right
+
+rlr2:
+    bne $t2, $t3, check_rightrow_2left_1right
+
+make_right_row_right_all_match_1:
+    li $t9, 1
+    la $t0, make_right_row_right_all_match
+    sw $t9, 0($t0)
+    j check_the_var_for_all_right_ofright
+
+check_the_var_for_all_right_ofright:
+    la $t0, make_right_row_right_all_match
+    lw $t9, 0($t0)
+    beq $t9, 1, clear_right_row_allright
+
+###################################################################################################
+check_rightrow_2left_1right:
+    lw $t0, 0($t6)
+    lw $t1, -4($t6)
+    lw $t2, -8($t6)
+    lw $t3, 4($t6)
+    beq $t0, $t1, rra1
+    j check_rightrow_1left_2right
+
+rra1:
+    bne $t1, $t2, check_rightrow_1left_2right
+
+rra2:
+    bne $t2, $t3, check_rightrow_1left_2right
+
+make_rightrow_2left_1right_match_1:
+    li $t9, 1
+    la $t0, make_rightrow_2left_1right_match
+    sw $t9, 0($t0)
+    j check_the_var_for_2left_1right_ofright
+
+check_the_var_for_2left_1right_ofright:
+    la $t0, make_rightrow_2left_1right_match
+    lw $t9, 0($t0)
+    beq $t9, 1, clear_right_row_2left_1right
+
+###################################################################################################
+check_rightrow_1left_2right:
+    lw $t0, 0($t6)
+    lw $t1, 4($t6)
+    lw $t2, 8($t6)
+    lw $t3, -4($t6)
+    beq $t0, $t1, rrlr1
+    j check_leftcol_all_3below
+
+rrlr1:
+    bne $t1, $t2, check_leftcol_all_3below
+
+rrlr2:
+    bne $t2, $t3, check_leftcol_all_3below
+
+make_rightrow_1left_2right_match_1:
+    li $t9, 1
+    la $t0, make_rightrow_1left_2right_match
+    sw $t9, 0($t0)
+    j check_the_var_for_1left_2right_ofright
+
+check_the_var_for_1left_2right_ofright:
+    la $t0, make_rightrow_1left_2right_match
+    lw $t9, 0($t0)
+    beq $t9, 1, clear_right_row_2right_1left
+
+
+
+#########################################################
+
+check_leftcol_all_3below:
+    lw $t0, 0($t5)
+    lw $t1, 128($t5)
+    lw $t2, 256($t5)
+    lw $t3, 384($t5)
+    beq $t0, $t1, lcb1
+    j check_leftcol_all_3above
+
+lcb1:
+    bne $t1, $t2, check_leftcol_all_3above
+
+lcb2:
+    bne $t2, $t3, check_leftcol_all_3above
+
+make_leftcol_allbelow_match_1:
+    li $t9, 1
+    la $t0, make_leftcol_allbelow_match
+    sw $t9, 0($t0)
+    j check_var_leftcol_allbelow
+
+check_var_leftcol_allbelow:
+    la $t0, make_leftcol_allbelow_match
+    lw $t9, 0($t0)
+    beq $t9, 1, clear_left_column_allbelow
+
+#############################################################
+
+check_leftcol_all_3above:
+    lw $t0, 0($t5)
+    lw $t1, -128($t5)
+    lw $t2, -256($t5)
+    lw $t3, -384($t5)
+    beq $t0, $t1, lca1
+    j check_leftcol_2above_1below
+
+lca1:
+    bne $t1, $t2, check_leftcol_2above_1below
+
+lca2:
+    bne $t2, $t3, check_leftcol_2above_1below
+
+make_leftcol_allabove_match_1:
+    li $t9, 1
+    la $t0, make_leftcol_allabove_match
+    sw $t9, 0($t0)
+    j check_var_leftcol_allabove
+
+check_var_leftcol_allabove:
+    la $t0, make_leftcol_allabove_match
+    lw $t9, 0($t0)
+    beq $t9, 1, clear_left_column_allabove
+    
+###########################################################
+
+check_leftcol_2above_1below:
+    lw $t0, 0($t5)
+    lw $t1, -128($t5)
+    lw $t2, -256($t5)
+    lw $t3, 128($t5)
+    beq $t0, $t1, lmix1
+    j check_leftcol_1above_2below
+
+lmix1:
+    bne $t1, $t2, check_leftcol_1above_2below
+
+lmix2:
+    bne $t2, $t3, check_leftcol_1above_2below
+
+make_leftcol_mixed_match_1:
+    li $t9, 1
+    la $t0, make_leftcol_mixed_match
+    sw $t9, 0($t0)
+    j check_var_leftcol_mixed
+
+check_var_leftcol_mixed:
+    la $t0, make_leftcol_mixed_match
+    lw $t9, 0($t0)
+    beq $t9, 1, clear_left_column_2above_1below
+
+################################################################################
+
+check_leftcol_1above_2below:
+    lw $t0, 0($t5)         # current capsule half
+    lw $t1, -128($t5)      # 1 above
+    lw $t2, 128($t5)       # 1 below
+    lw $t3, 256($t5)       # 2 below
+    beq $t0, $t1, lmix_ab1
+    j check_rightcol_all_3below  # jump to next column case
+
+lmix_ab1:
+    bne $t1, $t2, check_rightcol_all_3below
+
+lmix_ab2:
+    bne $t2, $t3, check_rightcol_all_3below
+
+make_leftcol_1above_2below_match_1:
+    li $t9, 1
+    la $t0, make_leftcol_1above_2below_match
+    sw $t9, 0($t0)
+    j check_var_leftcol_1above_2below
+
+check_var_leftcol_1above_2below:
+    la $t0, make_leftcol_1above_2below_match
+    lw $t9, 0($t0)
+    beq $t9, 1, clear_left_column_2above_1below
+#############################################################################
+check_rightcol_all_3below:
+    lw $t0, 0($t6)
+    lw $t1, 128($t6)
+    lw $t2, 256($t6)
+    lw $t3, 384($t6)
+    beq $t0, $t1, rcb1
+    j check_rightcol_all_3above
+
+rcb1:
+    bne $t1, $t2, check_rightcol_all_3above
+
+rcb2:
+    bne $t2, $t3, check_rightcol_all_3above
+
+make_rightcol_allbelow_match_1:
+    li $t9, 1
+    la $t0, make_rightcol_allbelow_match
+    sw $t9, 0($t0)
+    j check_var_rightcol_allbelow
+
+check_var_rightcol_allbelow:
+    la $t0, make_rightcol_allbelow_match
+    lw $t9, 0($t0)
+    beq $t9, 1, clear_right_column_allbelow
+####################################################################################
+check_rightcol_all_3above:
+    lw $t0, 0($t6)
+    lw $t1, -128($t6)
+    lw $t2, -256($t6)
+    lw $t3, -384($t6)
+    beq $t0, $t1, rca1
+    j check_rightcol_2above_1below
+
+rca1:
+    bne $t1, $t2, check_rightcol_2above_1below
+
+rca2:
+    bne $t2, $t3, check_rightcol_2above_1below
+
+make_rightcol_allabove_match_1:
+    li $t9, 1
+    la $t0, make_rightcol_allabove_match
+    sw $t9, 0($t0)
+    j check_var_rightcol_allabove
+
+check_var_rightcol_allabove:
+    la $t0, make_rightcol_allabove_match
+    lw $t9, 0($t0)
+    beq $t9, 1, clear_right_column_allabove
+#######################################################################################
+
+
+check_rightcol_2above_1below:
+    lw $t0, 0($t6)
+    lw $t1, -128($t6)
+    lw $t2, -256($t6)
+    lw $t3, 128($t6)
+    beq $t0, $t1, rmix1
+    j check_rightcol_1above_2below
+
+rmix1:
+    bne $t1, $t2, check_rightcol_1above_2below
+
+rmix2:
+    bne $t2, $t3, check_rightcol_1above_2below
+
+make_rightcol_2above_1below_match_1:
+    li $t9, 1
+    la $t0, make_rightcol_2above_1below_match
+    sw $t9, 0($t0)
+    j check_var_rightcol_2above_1below
+
+check_var_rightcol_2above_1below:
+    la $t0, make_rightcol_2above_1below_match
+    lw $t9, 0($t0)
+    beq $t9, 1, clear_right_column_2above_1below
+##################################################################################
+
+check_rightcol_1above_2below:
+    lw $t0, 0($t6)
+    lw $t1, -128($t6)
+    lw $t2, 128($t6)
+    lw $t3, 256($t6)
+    beq $t0, $t1, rmix_ab1
+    j draw_new_capsule
+
+
+rmix_ab1:
+    bne $t1, $t2, draw_new_capsule
+
+rmix_ab2:
+    bne $t2, $t3, draw_new_capsule
+
+make_rightcol_1above_2below_match_1:
+    li $t9, 1
+    la $t0, make_rightcol_1above_2below_match
+    sw $t9, 0($t0)
+    j check_var_rightcol_1above_2below
+
+check_var_rightcol_1above_2below:
+    la $t0, make_rightcol_1above_2below_match
+    lw $t9, 0($t0)
+    beq $t9, 1, clear_right_column_2below_1above
+
+########################## end of all the checks
+
+#####clearing rows and columns
+clear_right_column_2above_1below:
+  sw $zero, -128($t6)     # pixel above right half
+  sw $zero, -256($t6)     # pizel 2 above right half
+  sw $zero, 128($t6)      # pixel below right half
+  sw $zero, 0($t6)        # the right half
+  jal apply_gravity
+  j draw_new_capsule
+  
+clear_right_column_2below_1above:
+  sw $zero, 128($t6)     # pixel below right half
+  sw $zero, 256($t6)     # pizel 2 below right half
+  sw $zero, 128($t6)      # pixel above right half
+  sw $zero, 0($t6)        # the right half
+  jal apply_gravity
+  j draw_new_capsule
+  
+clear_right_column_allabove:
+  sw $zero, -128($t6)     
+  sw $zero, -256($t6)     
+  sw $zero, -384($t6) 
+  sw $zero, 0($t6)   
+  jal apply_gravity
+  j draw_new_capsule
+  
+clear_right_column_allbelow:
+  sw $zero, 128($t6)     
+  sw $zero, 256($t6)     
+  sw $zero, 384($t6) 
+  sw $zero, 0($t6)  
+  jal apply_gravity
+  j draw_new_capsule
+
+clear_left_column_2above_1below:
+  sw $zero, -128($t5)     # pixel above left half
+  sw $zero, -256($t5)     # pizel 2 above left half
+  sw $zero, 128($t5)      # pixel below left half
+  sw $zero, 0($t5)        # the left half
+  jal apply_gravity
+  j draw_new_capsule
+  
+clear_left_column_2below_1above:
+  sw $zero, 128($t5)     # pixel below left half
+  sw $zero, 256($t5)     # pizel 2 below left half
+  sw $zero, 128($t5)      # pixel above left half
+  sw $zero, 0($t5)        # the left half
+  jal apply_gravity
+  j draw_new_capsule
+
+clear_left_column_allabove:
+  sw $zero, -128($t5)     
+  sw $zero, -256($t5)     
+  sw $zero, -384($t5)   
+  sw $zero, 0($t5)        # the left half
+  jal apply_gravity
+  j draw_new_capsule
+  
+clear_left_column_allbelow:        
+  sw $zero, 128($t5)     
+  sw $zero, 256($t5)     
+  sw $zero, 384($t5)
+  sw $zero, 0($t5)        # the left half
+  jal apply_gravity
+  j draw_new_capsule
+
+##### clearing rows for left half capsule
+clear_left_row_2left_1right:
+  sw $zero, -4($t5)       # pixel to the left
+  sw $zero, -8($t5)       # pixel 2 to the left
+  sw $zero, 4($t5)        # pixel to the right
+  sw $zero, 0($t5)        # the left half
+  jal apply_gravity
+  j draw_new_capsule
+  
+clear_left_row_2right_1left:
+  sw $zero, 4($t5)        
+  sw $zero, 8($t5)        
+  sw $zero, -4($t5)      
+  sw $zero, 0($t5)        # the left half
+  jal apply_gravity
+  j draw_new_capsule
+
+clear_left_row_allleft:
+  sw $zero, -4($t5)       
+  sw $zero, -8($t5)       
+  sw $zero, -12($t5)   
+  sw $zero, 0($t5)        # the left half
+  jal apply_gravity
+  j draw_new_capsule
+  
+clear_left_row_allright:
+  sw $zero, 4($t5)        
+  sw $zero, 8($t5)        
+  sw $zero, 12($t5)    
+  sw $zero, 0($t5)        # the left half
+  jal apply_gravity
+  j draw_new_capsule
+
+
+##### clearing rows for right half capsule
+clear_right_row_2left_1right:
+  sw $zero, -4($t6)       # pixel to the left
+  sw $zero, -8($t6)       # pixel 2 to the left
+  sw $zero, 4($t6)        # pixel to the right
+  sw $zero, 0($t6)        # the left half
+  jal apply_gravity
+  j draw_new_capsule
+  
+
+clear_right_row_2right_1left:        
+  sw $zero, 4($t6)        
+  sw $zero, 8($t6)        
+  sw $zero, -4($t6)  
+  sw $zero, 0($t6)
+  jal apply_gravity
+  j draw_new_capsule
+  
+clear_right_row_allleft:
+  sw $zero, -4($t6)       
+  sw $zero, -8($t6)       
+  sw $zero, -12($t6) 
+  sw $zero, 0($t6)
+  jal apply_gravity
+  j draw_new_capsule
+  
+clear_right_row_allright:
+  sw $zero, 4($t6)        
+  sw $zero, 8($t6)        
+  sw $zero, 12($t6) 
+  sw $zero, 0($t6)
+  jal apply_gravity
+  j draw_new_capsule
+
+#################################### GAME OVER ##################################
+clear_screen:
+    lw $t0, ADDR_DSPL        # base display address
+    li $t1, 0x000000         # black color
+    li $t2, 0                # loop index
+clear_loop:
+    beq $t2, 1024, done_clear  # screen is 128 x 8 = 1024 pixels
+    sw $t1, 0($t0)
+    addi $t0, $t0, 4         # move to next pixel
+    addi $t2, $t2, 1
+    j clear_loop
+done_clear:
+    jr $ra
+
+game_over:
+    jal clear_screen
+    jal draw_game_over_text
+
+draw_game_over_text:
+    lw $t0, ADDR_DSPL
+    li $t1, 0xff0000   # red color
+
+    # Draw an X to signify GAME OVER
+
+    sw $t1, 396($t0)
+    sw $t1, 528($t0)
+    sw $t1, 660($t0)
+    sw $t1, 792($t0)
+    sw $t1, 924($t0)
+    sw $t1, 1056($t0)
+    sw $t1, 1188($t0)
+    sw $t1, 1320($t0)
+    sw $t1, 1452($t0)
+    sw $t1, 1584($t0)
+    sw $t1, 1716($t0)
+    sw $t1, 1848($t0)
+    sw $t1, 1980($t0)
+    sw $t1, 2112($t0)
+    sw $t1, 2244($t0)
+    sw $t1, 2376($t0)
+    sw $t1, 2508($t0)
+    sw $t1, 2640($t0)
+    sw $t1, 2772($t0)
+    sw $t1, 2904($t0)
+    sw $t1, 3036($t0)
+    sw $t1, 3168($t0)
+    sw $t1, 3300($t0)
+    sw $t1, 3432($t0)
+    sw $t1, 3564($t0)
+    sw $t1, 3696($t0)
+
+   
+    sw $t1, 496($t0)
+    sw $t1, 620($t0)
+    sw $t1, 744($t0)
+    sw $t1, 868($t0)
+    sw $t1, 992($t0)
+    sw $t1, 1116($t0)
+    sw $t1, 1240($t0)
+    sw $t1, 1364($t0)
+    sw $t1, 1488($t0)
+    sw $t1, 1612($t0)
+    sw $t1, 1736($t0)
+    sw $t1, 1860($t0)
+    sw $t1, 1984($t0)
+    sw $t1, 2108($t0)  
+    sw $t1, 2232($t0)
+    sw $t1, 2356($t0)
+    sw $t1, 2480($t0)
+    sw $t1, 2604($t0)
+    sw $t1, 2728($t0)
+    sw $t1, 2852($t0)
+    sw $t1, 2976($t0)
+    sw $t1, 3100($t0)
+    sw $t1, 3224($t0)
+    sw $t1, 3348($t0)
+    sw $t1, 3472($t0)
+    sw $t1, 3596($t0)
+
+    j end_game_loop
+
+################################################################################
+
+
+######################## GRAVITY ###############################################
+apply_gravity:
+    lw $t0, ADDR_DSPL
+    li $t1, 0x00ffff       # cyan (wall)
+    lw $a0, is_paused
+    beq $a0,1, skip_gravity
+gravity_repeat:
+    li $t9, 0              # moved = 0 (nothing has moved yet)
+    li $t2, 30             # start from bottom row
+
+gravity_row_loop:
+    bltz $t2, end_apply_gravity
+    li $t3, 7                # column = 7
+
+gravity_col_loop:
+    bge $t3, 128, next_row
+
+    # Compute pixel address: base + ((row * 128 + col) * 4)
+    mul $t4, $t2, 128
+    add $t4, $t4, $t3
+    sll $t4, $t4, 2
+    add $t4, $t4, $t0      # t4 = current pixel addr
+
+    lw $t5, 0($t4)         # t5 = current pixel color
+    beqz $t5, skip_pixel   # skip if black
+    beq $t5, $t1, skip_pixel # skip if cyan (wall)
+
+    # Skip if it's a virus
+    li $t7, 0x10008540
+    beq $t4, $t7, skip_pixel
+    li $t7, 0x100087b0
+    beq $t4, $t7, skip_pixel
+    li $t7, 0x10008a4c
+    beq $t4, $t7, skip_pixel
+
+    # Skip if it's connected (left or right so that the capsule does not break)
+    lw $a1, -4($t4)
+#    li $t1, 0xffff00     # yellow color
+#    sw $t1, -4($t4)       # store it at address in $t4 for debugging
+
+
+    lw $a2, 4($t4)
+    bnez $a1, connected_left
+    bnez $a2, connected_right
+    j fall_down
+
+connected_left:
+    beq $a1, $t1, skip_pixel
+    j skip_pixel
+
+connected_right:
+    beq $a2, $t1, skip_pixel
+    j skip_pixel
+
+
+fall_down:
+    move $t6, $t4      # t6 = current pixel position
+    move $t7, $t5      # t7 = pixel color
+fall_loop:
+    addi $t8, $t6, 128   # one row down
+    lw $a0, 0($t8)
+    bnez $a0, skip_pixel  # hit something
+
+    # Swap current with below
+    sw $zero, 0($t6)
+    sw $t7, 0($t8)
+    li $t9, 1        # set moved flag
+
+    # Add small delay here for each pixel fall
+    li $t2, 1000000
+fall_pixel_delay:
+    subi $t2, $t2, 1
+    bgtz $t2, fall_pixel_delay
+
+    move $t6, $t8
+    j fall_loop
+
+skip_pixel:
+    addi $t3, $t3, 1
+    j gravity_col_loop
+
+next_row:
+    addi $t2, $t2, -1
+    j gravity_row_loop
+    
+end_apply_gravity:
+    bnez $t9, gravity_repeat  # if moved == 1, restart gravity
+    jr $ra
+
+
+
+################################################################################
+end_game_loop:
+    lw $t0, ADDR_KBRD
+    lw $t1, 0($t0)        # check if key was pressed
+    beq $t1, $zero, end_game_loop  # no key pressed keep running the loop 
+
+    lw $t2, 4($t0)        # load ASCII of pressed key
+    li $t3, 'r'
+    beq $t2, $t3, restart_game
+    j end_game_loop       # any other key keep running the loop
+    
+restart_game:
+  # resetting the temp registers so that they don't have the same values when the program starts from main again
+    li $t5, 0x10008240    # reset capsule left half position
+    li $t6, 0x10008244    # reset capsule right half position
+    li $t7, 0             # reset orientation (horizontal)
+    sw $t7, is_vertical
+    li $t8, 0
+    sw $t8, capsule_orientation_horizontal  # Reset to default horizontal rotation
+    li $a0, 0
+    sw $a0, capsule_saved  # Reset capsule_saved to default value
+    jal clear_screen
+
+    # li $s5, 0
+    # la $t9, capsules_drawing_done
+    # sw $s5, 0($t9)
+
+    j main   # go back to start of game
+
+
+quit_game: 
+  li $v0 , 10       # terminates the program gracefully
+  syscall
+
+Exit:
+  li $v0, 10  # terminate the program gracefully
+  syscall
+
+jal apply_gravity
+# 5. Go back to Step 1
+j game_loop
